@@ -1,377 +1,156 @@
-# instagrapi
+# Instagram Analytics Scraper Engine
 
-> ⚠️ **Telegram support group moved to [aiograpi_support](https://t.me/aiograpi_support)** — the previous `@instagrapi` group has been restricted by Meta and is no longer maintained.
+A local FastAPI service and web dashboard for pulling Instagram profile and
+post/reel analytics, built on top of the [instagrapi](https://github.com/subzeroid/instagrapi)
+private-API library (vendored in this repo — original library docs kept in
+[`INSTAGRAPI_LIBRARY_README.md`](INSTAGRAPI_LIBRARY_README.md)).
 
-[![PyPI](https://img.shields.io/pypi/v/instagrapi)](https://pypi.org/project/instagrapi/)
-[![Python](https://img.shields.io/pypi/pyversions/instagrapi)](https://pypi.org/project/instagrapi/)
-[![License](https://img.shields.io/pypi/l/instagrapi)](LICENSE)
-[![Package](https://github.com/subzeroid/instagrapi/actions/workflows/python-package.yml/badge.svg)](https://github.com/subzeroid/instagrapi/actions/workflows/python-package.yml)
-[![Docs](https://img.shields.io/badge/docs-gh--pages-blue)](https://subzeroid.github.io/instagrapi/)
+It gives you:
+- A **Test Console** (`/`) to log in and try the API endpoints from a browser.
+- An **Analytics Dashboard** (`/analytics.html`) showing follower stats, per-post
+  likes/comments/views, content-type breakdown, and top-performing posts.
+- A small JSON API other tools (e.g. a CRM) can call directly.
 
-Fast and effective unofficial Instagram API wrapper for Python.
+## ⚠️ Read this first
 
-`instagrapi` combines public web and private mobile API flows, supports session persistence and challenge handling, and covers the main automation primitives for users, media, stories, direct messages, notes, locations, comments, insights, and uploads.
+- `instagrapi` talks to Instagram's **private mobile API**, not the official
+  Graph API. This is **against Instagram's Terms of Service** and carries a
+  real risk of account checkpoints, temporary restrictions, or bans —
+  especially for password-based login, which frequently triggers a security
+  checkpoint that this library cannot resolve automatically.
+- Everything in this repo is **read-only** (login + fetch data). There are no
+  posting, liking, following, or messaging endpoints.
+- Runs on `127.0.0.1` only — not exposed to the internet. Don't change that
+  without adding real authentication first.
+- **Never commit `session.json`.** It contains a live, working Instagram
+  session — equivalent to your password. It's already git-ignored; keep it
+  that way.
+- Use a **test/secondary Instagram account** where possible. If you use a
+  real/primary account, treat it as genuinely at-risk.
 
-Private API automation is fragile in production because account trust, proxies, device state, challenges, and rate limits can change independently of the library.
-For account-owned business workflows, prefer official Instagram APIs where they cover your use case.
-For production private API infrastructure, a hosted provider such as [HikerAPI](https://hikerapi.com/) may be a better fit than maintaining accounts, proxies, and challenge handling yourself.
+## Prerequisites
 
-The instagrapi project is best suited for testing, research, and controlled internal automation.
+- Python **3.10+**
+- Git
 
-✨ [aiograpi - Asynchronous Python library for Instagram Private API](https://github.com/subzeroid/aiograpi) ✨
-
-Support **Python 3.10+**
-
-`Python 3.9` support was dropped in `2.5.0`. Upstream security patches for Pillow `12.x` and pytest `9.x` are not backported to `Python 3.9`, leaving conditional pins permanently exposed to known CVEs. Users who need `Python 3.9` should pin to `instagrapi==2.4.5`.
-
-## Installation
-
-```bash
-pip install instagrapi
-```
-
-Optional public web TLS impersonation support is available as an extra:
-
-```bash
-pip install "instagrapi[curl]"
-```
-
-Use it only for public web endpoints that are sensitive to browser TLS fingerprints:
-
-```python
-cl = Client(public_transport="curl", public_transport_impersonate="chrome136")
-```
-
-See the [public transport guide](docs/usage-guide/public-transport.md) for live comparison results and caveats.
-
-TLS certificate verification is enabled by default. For a trusted debugging MITM proxy, prefer `Client(tls_verify="/path/to/proxy-ca.pem")`; use `Client(tls_verify=False)` only for temporary local debugging because it allows session interception.
-
-If your project uses [uv](https://docs.astral.sh/uv/), you can add the package with:
+## Setup
 
 ```bash
-uv add instagrapi
+git clone https://github.com/Michaelanand123singh/Instagram_analytics_scrapper_engine.git
+cd Instagram_analytics_scrapper_engine
+
+# create and activate a virtual environment
+python -m venv venv
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
+
+# install instagrapi (this repo) in editable mode
+pip install -e .
+
+# install the API/dashboard dependencies
+pip install -r requirements-api.txt
 ```
 
-Or install it into the active virtual environment:
+## Running the server
 
 ```bash
-uv pip install instagrapi
+python -m uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
-Video uploads can use a built-in MP4 metadata parser when you provide `thumbnail=...`. Automatic thumbnail generation, `StoryBuilder`, and video/audio composition still need the optional video dependencies, MoviePy `2.2.1`, and executable `ffmpeg`:
+Then open **http://127.0.0.1:8000/** in your browser.
 
-```bash
-pip install "instagrapi[video]"
-pip install --no-deps "moviepy==2.2.1"
+On first run, a `session.json` is created automatically to hold a stable
+device fingerprint — this persists across restarts and is important for
+account safety (see [Notes on account safety](#notes-on-account-safety)).
+
+## Logging in
+
+There are two ways to log in, from the **Test Console** at `/`:
+
+### Option A — Username & password (may hit a checkpoint)
+
+Enter your username, password, and (if prompted) a 2FA/verification code.
+Instagram frequently responds to fresh automated logins with a **security
+checkpoint** ("challenge required") that must be completed manually in the
+real Instagram app or website — this library cannot solve it for you. If that
+happens, use Option B instead.
+
+### Option B — Import an already-logged-in session (recommended)
+
+This reuses a session Instagram has already fully trusted via its own normal
+web login, skipping the checkpoint flow entirely:
+
+1. Log into [instagram.com](https://instagram.com) normally in your browser.
+2. Open DevTools (`F12`) → **Application** (Chrome/Edge) or **Storage**
+   (Firefox) tab → **Cookies** → `https://www.instagram.com`.
+3. Copy the value of the **`sessionid`** cookie.
+4. On the Test Console, paste it into the **"Import an already-logged-in
+   session"** box and click **Import session**.
+
+Once logged in (either way), the session is saved to `session.json` and
+reused automatically on future server restarts — you won't need to log in
+again unless you explicitly log out or the session expires.
+
+## Using the dashboard
+
+- **Test Console** (`/`) — login, logout, fetch your own account info, look
+  up any public username.
+- **Analytics Dashboard** (`/analytics.html`) — set how many recent posts to
+  analyze, click **Fetch analytics**, and see:
+  - Profile summary (followers/following/total posts)
+  - Stat tiles (total likes/comments/views, averages, engagement rate)
+  - Likes-per-post chart with hover details
+  - Content type breakdown (photo/video/carousel/reel/igtv)
+  - Top 5 posts by engagement and by views
+  - Full sortable table of every fetched post/reel with a direct link
+
+## API reference
+
+All endpoints are JSON. Login is required (via `/login` or
+`/login/sessionid`) before calling any data endpoint.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Server status and login state |
+| POST | `/login` | Log in with `username`, `password`, optional `verification_code` |
+| POST | `/login/sessionid` | Log in by importing a `sessionid` cookie value |
+| POST | `/logout` | Clear the saved session |
+| GET | `/account/info` | Your own account's profile info |
+| GET | `/user/{username}` | Public profile info for any username |
+| GET | `/analytics?amount=30` | Profile + per-post analytics for your `amount` most recent posts/reels |
+
+## Notes on account safety
+
+- The client reuses a **persistent device fingerprint** (stored in
+  `session.json`) instead of generating a new one on every run — a changing
+  fingerprint is one of the biggest triggers for Instagram's automation
+  detection.
+- Requests are throttled with a randomized 1–3 second delay
+  (`client.delay_range` in `api.py`) to avoid bursty, bot-like traffic.
+- Keep `amount` in `/analytics` moderate (tens, not hundreds) per run, and
+  avoid running this on a tight automated schedule (e.g. hourly). A weekly or
+  occasional manual pull is a much safer usage pattern.
+- Stick to **one Instagram account per machine/session** where possible —
+  repeatedly logging in and out of different accounts from the same device
+  looks more suspicious to Instagram than steady use of one account.
+
+## Project structure
+
+```
+api.py                          FastAPI app: login, session handling, analytics endpoints
+static/index.html               Test Console (login + basic endpoint testing UI)
+static/analytics.html           Analytics dashboard
+instagrapi/                     instagrapi library source (vendored)
+requirements-api.txt            Dependencies for api.py (FastAPI, uvicorn)
+pyproject.toml                  instagrapi package definition
+INSTAGRAPI_LIBRARY_README.md    Original upstream instagrapi documentation
 ```
 
-MoviePy `2.2.1` currently declares `Pillow<12`, but instagrapi keeps `Pillow>=12.2.0` for security fixes; the `--no-deps` install keeps the safe Pillow version. If your project imports MoviePy directly, migrate any MoviePy `1.x` code from `moviepy.editor`, `set_*`, `resize`, and `subclip` APIs to the MoviePy `2.x` API before upgrading.
-
-Android users should see [Pydroid and ffmpeg](docs/usage-guide/pydroid.md) and [Termux](docs/usage-guide/termux.md).
-
-## Quick Start
-
-``` python
-from instagrapi import Client
-
-cl = Client()
-cl.login(ACCOUNT_USERNAME, ACCOUNT_PASSWORD)
-
-user_id = cl.user_id_from_username(ACCOUNT_USERNAME)
-medias = cl.user_medias(user_id, 20)
-```
-
-## Runnable Examples
-
-Practical scripts live in [examples/README.md](examples/README.md). They cover session login, public lookups, media
-downloads, feed uploads, Reels and Trial Reels, story uploads, Direct messages, proxies, challenge handling, and optional
-curl-backed public transport.
-
-## Session Persistence
-
-``` python
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-cl.dump_settings("session.json")
-
-# reload later without entering credentials again
-cl = Client()
-cl.load_settings("session.json")
-cl.login(USERNAME, PASSWORD)
-```
-
-If you want more explicit control over the loaded session object:
-
-```python
-from instagrapi import Client
-
-cl = Client()
-cl.set_settings(cl.load_settings("session.json"))
-cl.login(USERNAME, PASSWORD)
-```
-
-### Login using a sessionid
-
-``` python
-from instagrapi import Client
-
-cl = Client()
-cl.login_by_sessionid("<your_sessionid>")
-```
-
-`login_by_sessionid()` is best treated as a lightweight compatibility path. For long-lived automation, prefer the normal `login() -> dump_settings() -> load_settings()/set_settings()` session flow.
-
-If a browser/web `sessionid` returns `login_required` or logs the browser out, Instagram rejected that session for the private mobile API. Use a stable password login once, save settings with `dump_settings()`, and reuse those settings instead of repeatedly importing browser cookies.
-
-## Typical Tasks
-
-### List and download another user's posts
-
-``` python
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-
-target_id = cl.user_id_from_username("target_user")
-posts = cl.user_medias(target_id, amount=10)
-for media in posts:
-    # download photos to the current folder
-    cl.photo_download(media.pk)
-```
-See [examples/session_login.py](examples/session_login.py) for a standalone script demonstrating these login methods.
-
-### Search locations by name or exact pk
-
-```python
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-
-places = cl.location_search_name("Times Square")
-place = places[0]
-same_place = cl.location_search_pk(place.pk)
-
-print(same_place.name, same_place.pk)
-```
-
-### Send and read Direct messages
-
-```python
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-
-target_id = cl.user_id_from_username("target_user")
-sent = cl.direct_send("Hello from instagrapi", user_ids=[target_id])
-print("sent", sent.id)
-
-threads = cl.direct_threads(amount=5)
-for thread in threads:
-    last_message = thread.messages[0] if thread.messages else None
-    print(thread.id, thread.thread_title, last_message.text if last_message else "")
-```
-
-### Work with Direct messages over Realtime MQTT
-
-Realtime MQTT support is experimental. It opens Instagram's private MQTToT
-connection after login, emits live callbacks, and uses the same `Client.proxy`
-settings as HTTP requests. The realtime client can receive Direct message sync
-events and publish lightweight Direct actions such as text, reactions, typing,
-and seen state. Use the regular `direct_*` methods for media sends and full
-thread management.
-
-```python
-import json
-
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-
-
-def handle_direct_message(payload):
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-
-cl.realtime_on("message", handle_direct_message)
-
-rt = cl.realtime_connect()
-rt.direct_subscribe()
-
-try:
-    rt.ping()
-    rt.direct_send_text(THREAD_ID, "Hello from MQTT")
-    while True:
-        rt.read_once()
-finally:
-    cl.realtime_disconnect()
-```
-
-See the full [Realtime MQTT guide](docs/usage-guide/realtime.md) for lower-level
-subscriptions and event details.
-
-### Receive Direct push notifications over FBNS
-
-FBNS uses Instagram's separate push MQTT connection and registers an Android
-push token for the logged-in session. It is useful when you need push payloads
-such as Direct notification callbacks.
-
-```python
-import json
-
-from instagrapi import Client
-
-cl = Client()
-cl.login(USERNAME, PASSWORD)
-
-
-def handle_push(payload):
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
-
-
-cl.fbns_on("push", handle_push)
-fbns = cl.fbns_connect()
-
-try:
-    fbns.ping()
-    while True:
-        cl.fbns_read_once()
-finally:
-    cl.fbns_disconnect()
-```
-
-## Features
-
-* Uses [Web API](https://subzeroid.github.io/instagrapi/usage-guide/fundamentals.html) and [Mobile API](https://subzeroid.github.io/instagrapi/usage-guide/fundamentals.html) flows where available
-* Supports login by password, 2FA, 8-digit backup codes, `sessionid`, and [Bloks 2FA](https://subzeroid.github.io/instagrapi/usage-guide/totp.html#bloks-two-factor-flow) fallback/helpers for newer verification flows
-* Includes email/SMS-based [challenge resolver](https://subzeroid.github.io/instagrapi/usage-guide/challenge_resolver.html) hooks
-* Uploads and downloads photos, videos, albums, IGTV, reels, and stories
-* Works with users, media, comments, locations, hashtags, collections, notes, direct messages, and insights
-* Exposes account notification setting helpers with typed notification categories
-* Supports story building with mentions, hashtags, link stickers, and media stickers
-* Includes helpers for current location search and Direct message workflows
-* Supports mobile follower sorting with `date_followed_latest` and `date_followed_earliest`
-* App-side discovery surfaces: `chaining`, `fetch_suggestion_details`, `discover_recommended_accounts_for_category_v1`, `user_stream_*`, `user_web_profile_info_v1`
-* v2 search SERPs: `media_search`, `fbsearch_accounts_v2`, `fbsearch_reels_v2`, `fbsearch_topsearch_v2`, `fbsearch_typehead`
-* Alternative media-info path (`media_info_v2`) for ad-tagged / sponsored media that the canonical endpoint refuses
-* Experimental Realtime MQTT helpers for live events, Direct message sync, lightweight Direct actions, and FBNS push callbacks
-
-Anonymous/public web paths are best treated as opportunistic rather than guaranteed. Instagram can change or restrict them independently of the library, so production-grade workflows should prefer authenticated sessions.
-
-## Documentation And Support
-
-API reference and full usage guide live at [subzeroid.github.io/instagrapi](https://subzeroid.github.io/instagrapi/):
-
-* [Documentation index](https://subzeroid.github.io/instagrapi/)
-* [Getting Started](https://subzeroid.github.io/instagrapi/getting-started.html)
-* [Usage Guide](https://subzeroid.github.io/instagrapi/usage-guide/fundamentals.html)
-* [Interactions reference](https://subzeroid.github.io/instagrapi/usage-guide/interactions.html)
-* [Best Practices](https://subzeroid.github.io/instagrapi/usage-guide/best-practices.html) for sessions, proxies, and anti-abuse handling
-* [Handle Exceptions](https://subzeroid.github.io/instagrapi/usage-guide/handle_exception.html) for centralizing `429`, challenge, and relogin logic
-* [GitHub Discussions](https://github.com/subzeroid/instagrapi/discussions)
-* Support chat in Telegram: [aiograpi_support](https://t.me/aiograpi_support) — the previous `@instagrapi` group was restricted by Meta and is no longer maintained
-
-For other languages, consider [instagrapi-rest](https://github.com/subzeroid/instagrapi-rest). For async Python, see [aiograpi](https://github.com/subzeroid/aiograpi).
-
-## Tutorials
-
-Hands-on guides for real instagrapi work — login flows, sessions, proxies, scraping, posting, error handling — live at [instagrapi.com/guides](https://instagrapi.com/guides/):
-
-* [Instagram Private API in Python](https://instagrapi.com/guides/instagram-private-api-python/) — pillar walkthrough: login, sessions, fetching, posting
-* [2FA and `challenge_required`](https://instagrapi.com/guides/instagrapi-2fa-challenge/)
-* [Session persistence: file, Redis, and Postgres patterns](https://instagrapi.com/guides/instagrapi-session-persistence/)
-* [Configuring proxies (HTTP, SOCKS5, residential)](https://instagrapi.com/guides/instagrapi-proxy-setup/)
-* [Instagram scraper in Python: a working setup](https://instagrapi.com/guides/instagram-scraper-python/)
-* [Upload a photo from Python](https://instagrapi.com/guides/instagrapi-upload-photo-python/)
-* [Download Instagram stories](https://instagrapi.com/guides/instagrapi-download-stories-python/)
-* [Common errors reference](https://instagrapi.com/guides/errors/) — `bad_password`, `challenge_required`, `login_required`, `please_wait_a_few_minutes`, `feedback_required`, `proxy_address_is_blocked`
-* [`BadPassword`: correct password rejected by Instagram](https://instagrapi.com/guides/errors/bad-password/) — proxy/IP/device/session trust troubleshooting
-* [Framework integrations](https://instagrapi.com/guides/integrations/) — Django, FastAPI, Celery, Docker, AWS Lambda
-
-Comparing instagrapi to other tools:
-
-* [instagrapi vs Instaloader](https://instagrapi.com/compare/instaloader/) — download-only vs authenticated automation
-* [instagrapi vs aiograpi](https://instagrapi.com/guides/instagrapi-vs-aiograpi/) — sync or async
-* [Instagram API libraries by language](https://instagrapi.com/guides/instagram-api-libraries-by-language/) — what's actually maintained in 2026
-
-
-<details>
-    <summary>Additional example</summary>
-
-```python
-from instagrapi import Client
-from instagrapi.types import StoryMention, StoryMedia, StoryLink, StoryHashtag
-
-cl = Client()
-cl.login(USERNAME, PASSWORD, verification_code="<2FA CODE HERE>")
-
-media_pk = cl.media_pk_from_url('https://www.instagram.com/p/CGgDsi7JQdS/')
-media_path = cl.video_download(media_pk)
-subzeroid = cl.user_info_by_username('subzeroid')
-hashtag = cl.hashtag_info('dhbastards')
-
-cl.video_upload_to_story(
-    media_path,
-    "Credits @subzeroid",
-    mentions=[StoryMention(user=subzeroid, x=0.49892962, y=0.703125, width=0.8333333333333334, height=0.125)],
-    links=[StoryLink(webUri='https://github.com/subzeroid/instagrapi')],
-    hashtags=[StoryHashtag(hashtag=hashtag, x=0.23, y=0.32, width=0.5, height=0.22)],
-    medias=[StoryMedia(media_pk=media_pk, x=0.5, y=0.5, width=0.6, height=0.8)]
-)
-```
-</details>
-
-## Related Projects
-
-If you need async Python, use [aiograpi](https://github.com/subzeroid/aiograpi).
-
-For other languages, see [instagrapi-rest](https://github.com/subzeroid/instagrapi-rest).
-For hosted production Instagram API infrastructure, see [HikerAPI](https://hikerapi.com/).
-
-Related services:
-
-* [Cloqly](https://cloqly.com/register?ref=58dbf70f) for premium rotating proxies and stable automation traffic
-* [DataLikers](https://datalikers.com/p/S9Lv5vBy) for Instagram MCP, Cache API, and datasets
-* [LamaTok](https://lamatok.com/p/B9ScEYIQ) for TikTok API access, automation, and data workflows
-* [InstaSurfBot](https://t.me/InstaSurfBot) for downloading Instagram media in Telegram
-* [OSINTagramBot](https://t.me/OSINTagramBot) for Instagram OSINT in Telegram
-
-### [HikerAPI Affiliate Program](https://hikerapi.com/help/affiliate)
-
-Refer users to HikerAPI and earn a percentage of their API spending:
-
-| Plan | Commission |
-|------|------------|
-| Start trial plan ($0.02/req) | **50%** |
-| Standard ($0.001/req) | **25%** |
-| Business ($0.00069/req) | **15%** |
-| Ultra ($0.0006/req) | **10%** |
-
-**Extras:** 2-level referral system, no caps, lifetime attribution
-
-**Payouts:** USDT / USDC (TRC-20 or ERC-20), minimum 20 USDT, request anytime from the dashboard
-
-## Contributing
-
-[![List of contributors](https://opencollective.com/instagrapi/contributors.svg?width=890&button=0)](https://github.com/subzeroid/instagrapi/graphs/contributors)
-
-For local setup, tests, linting, and pull request expectations, see [CONTRIBUTING.md](CONTRIBUTING.md) and the [development guide](https://subzeroid.github.io/instagrapi/development-guide.html).
-
-Maintainer release commands:
-
-```bash
-git tag -a X.Y.Z -m "Release X.Y.Z"
-git push origin X.Y.Z
-git push codeberg X.Y.Z
-```
-
-The tag-based `publish.yml` workflow publishes to PyPI via trusted publishing and creates the GitHub release.
-
-## License
-
-`instagrapi` is distributed under the [MIT License](LICENSE).
+## Credits & license
+
+This repository vendors [instagrapi](https://github.com/subzeroid/instagrapi)
+by Mark Subzeroid and contributors, licensed under the MIT License (see
+[`LICENSE`](LICENSE)). `api.py` and everything under `static/` are additions
+built on top of it for this project.
