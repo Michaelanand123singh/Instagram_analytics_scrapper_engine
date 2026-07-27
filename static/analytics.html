@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Instagram Analytics</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .viz-root {
+    --surface-1:      #1a1a19;
+    --page-plane:      #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1: #3987e5; /* blue - photo */
+    --series-2: #d95926; /* orange - video */
+    --series-3: #199e70; /* aqua - carousel */
+    --series-4: #c98500; /* yellow - reel */
+    --series-5: #d55181; /* magenta - igtv */
+    --series-6: #008300; /* green - other */
+    --good: #0ca30c;
+  }
+  .viz-root table { border-collapse: collapse; }
+  .bar-rect { transition: opacity 0.12s ease; }
+  .bar-rect:hover { opacity: 0.75; }
+  .tooltip { pointer-events: none; }
+</style>
+</head>
+<body class="h-full bg-[#0d0d0d] text-white font-sans viz-root">
+  <div class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+
+    <nav class="flex items-center justify-between">
+      <div class="flex gap-4 text-sm">
+        <a href="/" class="text-[color:var(--text-muted)] hover:text-white transition">Test Console</a>
+        <a href="/analytics.html" class="text-white font-medium">Analytics</a>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="statusDot" class="h-2 w-2 rounded-full bg-slate-500"></span>
+        <span id="statusText" class="text-xs text-[color:var(--text-muted)]">checking…</span>
+      </div>
+    </nav>
+
+    <header id="profileHeader" class="flex items-center gap-4"></header>
+
+    <section class="flex items-end gap-3">
+      <div>
+        <label class="block text-xs text-[color:var(--text-muted)] mb-1">Posts to analyze (most recent)</label>
+        <input id="amount" type="number" value="30" min="1" max="500"
+               class="w-32 rounded-lg bg-[#1a1a19] border border-[color:var(--border)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--series-1)]" />
+      </div>
+      <button onclick="loadAnalytics()" class="rounded-lg bg-[color:var(--series-1)] hover:opacity-90 transition px-4 py-2 text-sm font-medium">
+        Fetch analytics
+      </button>
+      <span id="loadingNote" class="text-xs text-[color:var(--text-muted)]"></span>
+    </section>
+
+    <div id="content" class="space-y-8"></div>
+
+  </div>
+
+<script>
+  const fmt = (n) => new Intl.NumberFormat().format(n || 0);
+
+  async function checkHealth() {
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    try {
+      const res = await fetch('/health');
+      const data = await res.json();
+      dot.className = 'h-2 w-2 rounded-full ' + (data.logged_in ? 'bg-[color:var(--good)]' : 'bg-amber-500');
+      text.textContent = data.logged_in ? 'logged in' : 'not logged in — go to Test Console first';
+    } catch (e) {
+      dot.className = 'h-2 w-2 rounded-full bg-red-500';
+      text.textContent = 'server unreachable';
+    }
+  }
+
+  function statTile(label, value, sub) {
+    return `
+      <div class="rounded-xl bg-[#1a1a19] border border-[color:var(--border)] p-4">
+        <div class="text-xs text-[color:var(--text-muted)]">${label}</div>
+        <div class="text-2xl font-semibold mt-1 tabular-nums">${value}</div>
+        ${sub ? `<div class="text-xs text-[color:var(--text-secondary)] mt-1">${sub}</div>` : ''}
+      </div>`;
+  }
+
+  const TYPE_COLORS = {
+    photo: 'var(--series-1)',
+    video: 'var(--series-2)',
+    carousel: 'var(--series-3)',
+    reel: 'var(--series-4)',
+    igtv: 'var(--series-5)',
+    other: 'var(--series-6)',
+  };
+
+  function roundedTopBarPath(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    if (h <= 0) return '';
+    return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+  }
+
+  function renderLikesChart(media) {
+    const chrono = [...media].reverse();
+    const w = 900, h = 260, padL = 40, padB = 30, padT = 10, padR = 10;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const maxLikes = Math.max(1, ...chrono.map(m => m.like_count));
+    const n = chrono.length;
+    const gap = 2;
+    const barW = Math.max(2, plotW / n - gap);
+
+    let gridlines = '';
+    const steps = 4;
+    for (let i = 0; i <= steps; i++) {
+      const val = Math.round((maxLikes / steps) * i);
+      const y = padT + plotH - (val / maxLikes) * plotH;
+      gridlines += `<line x1="${padL}" y1="${y}" x2="${w - padR}" y2="${y}" stroke="var(--gridline)" stroke-width="1" />`;
+      gridlines += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="10" fill="var(--text-muted)">${fmt(val)}</text>`;
+    }
+
+    let bars = '';
+    chrono.forEach((m, i) => {
+      const x = padL + i * (plotW / n);
+      const bh = (m.like_count / maxLikes) * plotH;
+      const y = padT + plotH - bh;
+      const path = roundedTopBarPath(x, y, barW, bh, 3);
+      const date = m.taken_at ? m.taken_at.slice(0, 10) : '';
+      bars += `<path class="bar-rect" d="${path}" fill="var(--series-1)"
+                 data-likes="${m.like_count}" data-comments="${m.comment_count}" data-date="${date}" data-type="${m.type}"
+                 onmousemove="showTip(event, this)" onmouseleave="hideTip()" />`;
+    });
+
+    return `
+      <div class="rounded-xl bg-[#1a1a19] border border-[color:var(--border)] p-4 relative">
+        <div class="text-sm font-medium mb-1">Likes per post (chronological, oldest → newest)</div>
+        <div class="text-xs text-[color:var(--text-muted)] mb-3">Hover a bar for details</div>
+        <svg viewBox="0 0 ${w} ${h}" class="w-full h-auto">
+          ${gridlines}
+          <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="var(--baseline)" stroke-width="1" />
+          ${bars}
+        </svg>
+        <div id="tooltip" class="tooltip absolute hidden bg-[#0d0d0d] border border-[color:var(--border)] rounded-lg px-3 py-2 text-xs shadow-lg"></div>
+      </div>`;
+  }
+
+  function showTip(evt, el) {
+    const tip = document.getElementById('tooltip');
+    const likes = el.getAttribute('data-likes');
+    const comments = el.getAttribute('data-comments');
+    const date = el.getAttribute('data-date');
+    const type = el.getAttribute('data-type');
+    tip.innerHTML = `<div class="font-medium capitalize">${type} · ${date}</div>
+                      <div class="text-[color:var(--text-secondary)] mt-1">❤ ${fmt(likes)} likes &nbsp; 💬 ${fmt(comments)} comments</div>`;
+    tip.classList.remove('hidden');
+    const rect = el.closest('.relative').getBoundingClientRect();
+    tip.style.left = Math.min(evt.clientX - rect.left + 10, rect.width - 180) + 'px';
+    tip.style.top = (evt.clientY - rect.top - 40) + 'px';
+  }
+  function hideTip() {
+    document.getElementById('tooltip').classList.add('hidden');
+  }
+
+  function renderTypeBreakdown(typeCounts) {
+    const entries = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...entries.map(e => e[1]));
+    const rows = entries.map(([type, count]) => {
+      const pct = (count / max) * 100;
+      const color = TYPE_COLORS[type] || 'var(--series-6)';
+      return `
+        <div class="flex items-center gap-3">
+          <div class="w-20 text-xs capitalize text-[color:var(--text-secondary)]">${type}</div>
+          <div class="flex-1 bg-[#0d0d0d] rounded h-4 overflow-hidden">
+            <div class="h-full rounded" style="width:${pct}%; background:${color}"></div>
+          </div>
+          <div class="w-10 text-xs text-right tabular-nums">${count}</div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="rounded-xl bg-[#1a1a19] border border-[color:var(--border)] p-4">
+        <div class="text-sm font-medium mb-3">Content type breakdown</div>
+        <div class="space-y-2">${rows}</div>
+      </div>`;
+  }
+
+  function renderTopList(title, list, metricKey, metricLabel) {
+    const rows = list.map(m => `
+      <a href="${m.permalink}" target="_blank" rel="noopener"
+         class="flex items-center gap-3 py-2 border-b border-[color:var(--border)] last:border-0 hover:bg-white/5 -mx-2 px-2 rounded transition">
+        ${m.thumbnail_url ? `<img src="${m.thumbnail_url}" class="w-10 h-10 rounded object-cover flex-shrink-0" />` : '<div class="w-10 h-10 rounded bg-[#0d0d0d] flex-shrink-0"></div>'}
+        <div class="min-w-0 flex-1">
+          <div class="text-xs text-[color:var(--text-secondary)] truncate">${m.caption || '(no caption)'}</div>
+          <div class="text-xs text-[color:var(--text-muted)] capitalize">${m.type} · ${m.taken_at ? m.taken_at.slice(0,10) : ''}</div>
+        </div>
+        <div class="text-sm tabular-nums font-medium">${fmt(m[metricKey])}<span class="text-xs text-[color:var(--text-muted)] ml-1">${metricLabel}</span></div>
+      </a>`).join('') || '<div class="text-xs text-[color:var(--text-muted)]">No data</div>';
+    return `
+      <div class="rounded-xl bg-[#1a1a19] border border-[color:var(--border)] p-4">
+        <div class="text-sm font-medium mb-2">${title}</div>
+        ${rows}
+      </div>`;
+  }
+
+  function renderTable(media) {
+    const rows = media.map(m => `
+      <tr class="border-b border-[color:var(--border)] hover:bg-white/5">
+        <td class="py-2 px-3 text-xs text-[color:var(--text-muted)] whitespace-nowrap">${m.taken_at ? m.taken_at.slice(0,10) : ''}</td>
+        <td class="py-2 px-3 text-xs capitalize">${m.type}</td>
+        <td class="py-2 px-3 text-xs text-[color:var(--text-secondary)] max-w-xs truncate">${m.caption || ''}</td>
+        <td class="py-2 px-3 text-xs text-right tabular-nums">${fmt(m.like_count)}</td>
+        <td class="py-2 px-3 text-xs text-right tabular-nums">${fmt(m.comment_count)}</td>
+        <td class="py-2 px-3 text-xs text-right tabular-nums">${m.view_count ? fmt(m.view_count) : '—'}</td>
+        <td class="py-2 px-3 text-xs"><a href="${m.permalink}" target="_blank" rel="noopener" class="text-[color:var(--series-1)] hover:underline">open</a></td>
+      </tr>`).join('');
+    return `
+      <div class="rounded-xl bg-[#1a1a19] border border-[color:var(--border)] overflow-hidden">
+        <div class="text-sm font-medium p-4 pb-0">All fetched posts &amp; reels</div>
+        <div class="overflow-x-auto mt-3">
+          <table class="w-full text-left">
+            <thead>
+              <tr class="text-xs text-[color:var(--text-muted)] border-b border-[color:var(--border)]">
+                <th class="py-2 px-3 font-normal">Date</th>
+                <th class="py-2 px-3 font-normal">Type</th>
+                <th class="py-2 px-3 font-normal">Caption</th>
+                <th class="py-2 px-3 font-normal text-right">Likes</th>
+                <th class="py-2 px-3 font-normal text-right">Comments</th>
+                <th class="py-2 px-3 font-normal text-right">Views</th>
+                <th class="py-2 px-3 font-normal">Link</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  async function loadAnalytics() {
+    const amount = document.getElementById('amount').value || 30;
+    const note = document.getElementById('loadingNote');
+    const content = document.getElementById('content');
+    note.textContent = 'Fetching from Instagram… this can take a bit for large amounts.';
+    content.innerHTML = '';
+    try {
+      const res = await fetch('/analytics?amount=' + encodeURIComponent(amount));
+      const data = await res.json();
+      if (!res.ok) {
+        content.innerHTML = `<div class="text-red-400 text-sm">${JSON.stringify(data.detail || data)}</div>`;
+        note.textContent = '';
+        return;
+      }
+      note.textContent = '';
+      renderAll(data);
+    } catch (e) {
+      content.innerHTML = `<div class="text-red-400 text-sm">${String(e)}</div>`;
+      note.textContent = '';
+    }
+  }
+
+  function renderAll(data) {
+    const { profile, summary, media } = data;
+
+    document.getElementById('profileHeader').innerHTML = `
+      <div>
+        <div class="text-lg font-semibold">${profile.full_name || profile.username}</div>
+        <div class="text-sm text-[color:var(--text-muted)]">@${profile.username} · ${fmt(profile.follower_count)} followers · ${fmt(profile.following_count)} following · ${fmt(profile.media_count_total)} total posts on profile</div>
+      </div>`;
+
+    const tiles = [
+      statTile('Fetched', fmt(summary.fetched_count), `of ${fmt(profile.media_count_total)} total`),
+      statTile('Total likes', fmt(summary.total_likes)),
+      statTile('Total comments', fmt(summary.total_comments)),
+      statTile('Total views', fmt(summary.total_views), 'video/reel plays'),
+      statTile('Avg likes/post', fmt(summary.avg_likes)),
+      statTile('Avg engagement', summary.avg_engagement_pct + '%', 'of followers, per post'),
+    ].join('');
+
+    document.getElementById('content').innerHTML = `
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">${tiles}</div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2">${renderLikesChart(media)}</div>
+        <div>${renderTypeBreakdown(summary.type_counts)}</div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        ${renderTopList('Top 5 by engagement (likes + comments)', summary.top_by_engagement, 'engagement', 'eng.')}
+        ${renderTopList('Top 5 by views', summary.top_by_views, 'view_count', 'views')}
+      </div>
+      ${renderTable(media)}
+    `;
+  }
+
+  checkHealth();
+</script>
+</body>
+</html>

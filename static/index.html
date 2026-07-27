@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Instagrapi Test Console</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full bg-slate-950 text-slate-100 font-sans">
+  <div class="max-w-3xl mx-auto px-6 py-10 space-y-8">
+
+    <nav class="flex gap-4 text-sm">
+      <a href="/" class="text-white font-medium">Test Console</a>
+      <a href="/analytics.html" class="text-slate-400 hover:text-white transition">Analytics</a>
+    </nav>
+
+    <header class="space-y-1">
+      <h1 class="text-2xl font-semibold tracking-tight">Instagrapi Test Console</h1>
+      <p class="text-sm text-slate-400">Local test UI for the instagrapi FastAPI wrapper. Credentials go straight to your own localhost server — nowhere else.</p>
+      <div class="flex items-center gap-2 pt-2">
+        <span id="statusDot" class="h-2.5 w-2.5 rounded-full bg-slate-500"></span>
+        <span id="statusText" class="text-sm text-slate-400">Checking server status…</span>
+      </div>
+    </header>
+
+    <!-- Login card -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+      <h2 class="text-lg font-medium">1. Login</h2>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div class="sm:col-span-1">
+          <label class="block text-xs text-slate-400 mb-1">Username</label>
+          <input id="username" type="text" autocomplete="username"
+                 class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div class="sm:col-span-1">
+          <label class="block text-xs text-slate-400 mb-1">Password</label>
+          <input id="password" type="password" autocomplete="current-password"
+                 class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-slate-400 mb-1">2FA / verification code (leave blank unless asked)</label>
+          <input id="code" type="text"
+                 class="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="login()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 transition px-4 py-2 text-sm font-medium">
+          Log in
+        </button>
+        <button onclick="logout()" class="rounded-lg bg-slate-800 hover:bg-slate-700 transition px-4 py-2 text-sm font-medium">
+          Log out / clear session
+        </button>
+      </div>
+      <pre id="loginResult" class="text-xs text-slate-300 whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-3 min-h-[2.5rem]"></pre>
+    </section>
+
+    <!-- Session import card -->
+    <section class="bg-slate-900 border border-indigo-800 rounded-xl p-6 space-y-4">
+      <h2 class="text-lg font-medium">1b. Or: import an already-logged-in session</h2>
+      <p class="text-xs text-slate-400">
+        If username/password keeps hitting a security checkpoint, log into
+        <span class="text-slate-300">instagram.com</span> normally in this browser first, then open
+        DevTools → Application/Storage → Cookies → instagram.com, copy the value of the
+        <span class="text-slate-300">sessionid</span> cookie, and paste it below.
+      </p>
+      <div class="flex gap-3">
+        <input id="sessionid" type="text" placeholder="paste sessionid cookie value"
+               class="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <button onclick="loginSessionId()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 transition px-4 py-2 text-sm font-medium">
+          Import session
+        </button>
+      </div>
+      <pre id="sessionResult" class="text-xs text-slate-300 whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-3 min-h-[2.5rem]"></pre>
+    </section>
+
+    <!-- Account info card -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+      <h2 class="text-lg font-medium">2. My account info</h2>
+      <button onclick="accountInfo()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 transition px-4 py-2 text-sm font-medium">
+        Fetch my account info
+      </button>
+      <pre id="accountResult" class="text-xs text-slate-300 whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-3 min-h-[2.5rem]"></pre>
+    </section>
+
+    <!-- User lookup card -->
+    <section class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+      <h2 class="text-lg font-medium">3. Look up any public username</h2>
+      <div class="flex gap-3">
+        <input id="lookupUsername" type="text" placeholder="e.g. instagram"
+               class="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <button onclick="userLookup()" class="rounded-lg bg-indigo-600 hover:bg-indigo-500 transition px-4 py-2 text-sm font-medium">
+          Look up
+        </button>
+      </div>
+      <pre id="lookupResult" class="text-xs text-slate-300 whitespace-pre-wrap break-words bg-slate-950 border border-slate-800 rounded-lg p-3 min-h-[2.5rem]"></pre>
+    </section>
+
+  </div>
+
+<script>
+  async function checkHealth() {
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    try {
+      const res = await fetch('/health');
+      const data = await res.json();
+      dot.className = 'h-2.5 w-2.5 rounded-full ' + (data.logged_in ? 'bg-emerald-500' : 'bg-amber-500');
+      text.textContent = data.logged_in ? 'Server online — logged in' : 'Server online — not logged in yet';
+    } catch (e) {
+      dot.className = 'h-2.5 w-2.5 rounded-full bg-red-500';
+      text.textContent = 'Server unreachable';
+    }
+  }
+
+  function show(elId, data, isError) {
+    const el = document.getElementById(elId);
+    el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+    el.classList.toggle('text-red-400', !!isError);
+    el.classList.toggle('text-slate-300', !isError);
+  }
+
+  async function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const verification_code = document.getElementById('code').value.trim();
+    show('loginResult', 'Logging in…', false);
+    try {
+      const res = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, verification_code: verification_code || null })
+      });
+      const data = await res.json();
+      show('loginResult', data, !res.ok);
+    } catch (e) {
+      show('loginResult', String(e), true);
+    }
+    checkHealth();
+  }
+
+  async function logout() {
+    show('loginResult', 'Logging out…', false);
+    const res = await fetch('/logout', { method: 'POST' });
+    const data = await res.json();
+    show('loginResult', data, !res.ok);
+    checkHealth();
+  }
+
+  async function accountInfo() {
+    show('accountResult', 'Loading…', false);
+    try {
+      const res = await fetch('/account/info');
+      const data = await res.json();
+      show('accountResult', data, !res.ok);
+    } catch (e) {
+      show('accountResult', String(e), true);
+    }
+  }
+
+  async function userLookup() {
+    const uname = document.getElementById('lookupUsername').value.trim();
+    if (!uname) return;
+    show('lookupResult', 'Loading…', false);
+    try {
+      const res = await fetch('/user/' + encodeURIComponent(uname));
+      const data = await res.json();
+      show('lookupResult', data, !res.ok);
+    } catch (e) {
+      show('lookupResult', String(e), true);
+    }
+  }
+
+  async function loginSessionId() {
+    const sessionid = document.getElementById('sessionid').value.trim();
+    if (!sessionid) return;
+    show('sessionResult', 'Importing session…', false);
+    try {
+      const res = await fetch('/login/sessionid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionid })
+      });
+      const data = await res.json();
+      show('sessionResult', data, !res.ok);
+    } catch (e) {
+      show('sessionResult', String(e), true);
+    }
+    checkHealth();
+  }
+
+  checkHealth();
+</script>
+</body>
+</html>
